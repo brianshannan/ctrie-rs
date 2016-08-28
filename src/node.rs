@@ -10,6 +10,7 @@ use std::sync::atomic::Ordering::{Acquire, Release};
 use crossbeam::mem::epoch::{self, Atomic, Owned};
 
 use ctrie::CTrie;
+use ctrie::CasHelper;
 use persistent_list::PersistentList;
 
 #[derive(Clone)]
@@ -120,7 +121,7 @@ impl<K: Clone + Hash + Eq, V: Clone> INode<K, V> {
             rdcss: None,
         };
         let guard = epoch::pin();
-        let main = ctrie.gcas_read(self, &guard);
+        let main = CasHelper::gcas_read(ctrie, self, &guard);
         new_inode.node.store(Some(Owned::new((**main.unwrap()).clone())), Release);
         new_inode
     }
@@ -236,11 +237,11 @@ impl<K: Clone + Hash + Eq, V: Clone> CNode<K, V> {
 }
 
 impl<K: Clone + Eq, V: Clone> LNode<K, V> {
-    pub fn new() -> LNode<K, V> {
-        LNode {
-            nodes: PersistentList::new(),
-        }
-    }
+    // pub fn new() -> LNode<K, V> {
+    //     LNode {
+    //         nodes: PersistentList::new(),
+    //     }
+    // }
 
     pub fn lookup(&self, key: &K) -> Option<V> {
         self.nodes.iter().find(|arc| {

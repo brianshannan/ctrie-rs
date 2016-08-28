@@ -4,8 +4,10 @@ extern crate crossbeam;
 extern crate test;
 
 // TODO change these
-pub mod ctrie;
-pub mod iter;
-pub mod node;
-pub mod persistent_list;
-mod bench;
+mod ctrie;
+mod iter;
+mod node;
+mod persistent_list;
+
+pub use ctrie::CTrie;
+pub use ctrie::DefaultHashBuilder;

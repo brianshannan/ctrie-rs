@@ -58,18 +58,18 @@ impl<T: Clone> PersistentList<T> {
         PersistentList::Cons(elem, Arc::new(self.clone()))
     }
 
-    pub fn insert(&self, pos: usize, elem: T) -> PersistentList<T> {
-        if pos == 0 {
-            return self.prepend(elem);
-        }
-
-        let new_node = self.tail().insert(pos - 1, elem);
-        match *self {
-            PersistentList::Nil => new_node,
-            PersistentList::Cons(ref head, _) =>
-                PersistentList::Cons(head.clone(), Arc::new(new_node)),
-        }
-    }
+    // pub fn insert(&self, pos: usize, elem: T) -> PersistentList<T> {
+    //     if pos == 0 {
+    //         return self.prepend(elem);
+    //     }
+    //
+    //     let new_node = self.tail().insert(pos - 1, elem);
+    //     match *self {
+    //         PersistentList::Nil => new_node,
+    //         PersistentList::Cons(ref head, _) =>
+    //             PersistentList::Cons(head.clone(), Arc::new(new_node)),
+    //     }
+    // }
 
     pub fn get(&self, pos: usize) -> Option<T> {
         if pos > 0 {

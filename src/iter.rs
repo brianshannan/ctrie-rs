@@ -4,6 +4,7 @@ use std::hash::BuildHasher;
 use crossbeam::mem::epoch;
 
 use ctrie::CTrie;
+use ctrie::CasHelper;
 use node::Branch;
 use node::MainNode;
 use node::MainNodeStruct;
@@ -34,9 +35,9 @@ impl<'a, K: Hash + Eq + Clone, V: Clone, H: BuildHasher + Clone> CTrieIter<'a, K
             // 13 is the deepest this can go
             stack: Vec::with_capacity(13),
         };
-        let inode = ct.rdcss_read_root(false, &guard);
+        let inode = CasHelper::rdcss_read_root(ct, false, &guard);
 
-        let mn = ct.gcas_read(*inode, &guard);
+        let mn = CasHelper::gcas_read(ct, *inode, &guard);
         c.stack.push(State {
             node: (**mn.unwrap()).clone(),
             idx: 0,
@@ -81,7 +82,7 @@ impl<'a, K: Hash + Eq + Clone, V: Clone, H: BuildHasher + Clone> Iterator for CT
                         // }
                         // push new node with node=gcas_read(inode), idx=0
                         let guard = epoch::pin();
-                        let shared = self.ct.gcas_read(inode, &guard);
+                        let shared = CasHelper::gcas_read(self.ct, inode, &guard);
                         self.stack.push(State {
                             node: (**shared.unwrap()).clone(),
                             idx: 0,

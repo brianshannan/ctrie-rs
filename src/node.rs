@@ -120,7 +120,7 @@ impl<K: Clone + Hash + Eq, V: Clone> INode<K, V> {
             rdcss: None,
         };
         let guard = epoch::pin();
-        let main = ctrie.gcas_read(self.clone(), &guard);
+        let main = ctrie.gcas_read(self, &guard);
         new_inode.node.store(Some(Owned::new((**main.unwrap()).clone())), Release);
         new_inode
     }
@@ -181,7 +181,7 @@ impl<K: Clone + Hash + Eq, V: Clone> CNode<K, V> {
         let bmp = cnode.bmp | flag;
 
         let snode = SNode {
-            key: key.clone(),
+            key: key,
             value: value,
         };
         let mut array = cnode.array.clone();

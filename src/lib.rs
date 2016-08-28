@@ -1,15 +1,11 @@
-#![allow(dead_code)]
+#![feature(test)]
 
 extern crate crossbeam;
+extern crate test;
 
+// TODO change these
 pub mod ctrie;
 pub mod iter;
 pub mod node;
 pub mod persistent_list;
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-    }
-}
+mod bench;

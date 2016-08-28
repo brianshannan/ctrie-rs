@@ -36,7 +36,7 @@ impl<'a, K: Hash + Eq + Clone, V: Clone, H: BuildHasher + Clone> CTrieIter<'a, K
         };
         let inode = ct.rdcss_read_root(false, &guard);
 
-        let mn = ct.gcas_read((**inode).clone(), &guard);
+        let mn = ct.gcas_read(*inode, &guard);
         c.stack.push(State {
             node: (**mn.unwrap()).clone(),
             idx: 0,
@@ -81,7 +81,7 @@ impl<'a, K: Hash + Eq + Clone, V: Clone, H: BuildHasher + Clone> Iterator for CT
                         // }
                         // push new node with node=gcas_read(inode), idx=0
                         let guard = epoch::pin();
-                        let shared = self.ct.gcas_read(inode.clone(), &guard);
+                        let shared = self.ct.gcas_read(inode, &guard);
                         self.stack.push(State {
                             node: (**shared.unwrap()).clone(),
                             idx: 0,

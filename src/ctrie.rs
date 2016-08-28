@@ -9,6 +9,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::{Acquire, Release};
 
 use crossbeam::mem::epoch::{self, Atomic, Owned, Shared, Guard};
+// use thread_local::ThreadLocal;
 
 use iter::CTrieIter;
 use persistent_list::PersistentList;
@@ -38,6 +39,8 @@ pub struct CTrie<K, V, H=DefaultHashBuilder> where K: Hash + Eq + Clone, V: Clon
     root: Atomic<INode<K, V>>,
     read_only: bool,
     hash_builder: H,
+    // hash_builder: ThreadLocal<H>,
+
 }
 
 impl <K, V, H> fmt::Debug for CTrie<K, V, H> where K: Hash + Eq + Clone + fmt::Debug, V: Clone + fmt::Debug, H: BuildHasher + Clone {
@@ -77,7 +80,7 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
         }
     }
 
-    fn gcas_complete<'a>(&self, inode: INode<K, V>, mnode: Option<Shared<'a, MainNodeStruct<K, V>>>, guard: &'a Guard) -> Option<Shared<'a, MainNodeStruct<K, V>>> {
+    fn gcas_complete<'a>(&self, inode: &INode<K, V>, mnode: Option<Shared<'a, MainNodeStruct<K, V>>>, guard: &'a Guard) -> Option<Shared<'a, MainNodeStruct<K, V>>> {
         if mnode.is_none() {
             return None;
         }
@@ -95,7 +98,7 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
                 // gcas failure, try to commit previous value
                 match inode.node.cas_and_ref(mnode, Owned::new(*fnode.clone()), Release, guard) {
                     Ok(shared) => Some(shared),
-                    Err(_) => self.gcas_complete(inode.clone(), inode.node.load(Acquire, guard), guard),
+                    Err(_) => self.gcas_complete(inode, inode.node.load(Acquire, guard), guard),
                 }
             },
             MainNodeStruct(_, _) => {
@@ -111,13 +114,13 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
                     // try to abort
                     let new_failed = MainNodeStruct(MainNode::Failed(Box::new((**prev.unwrap()).clone())), Arc::new(Atomic::null()));
                     let _ = mn.1.cas(prev, Some(Owned::new(new_failed)), Release);
-                    self.gcas_complete(inode.clone(), inode.node.load(Acquire, guard), guard)
+                    self.gcas_complete(inode, inode.node.load(Acquire, guard), guard)
                 }
             },
         }
     }
 
-    fn gcas(&self, inode: INode<K, V>, old: Option<Shared<MainNodeStruct<K, V>>>, n: MainNodeStruct<K, V>) -> bool {
+    fn gcas(&self, inode: &INode<K, V>, old: Option<Shared<MainNodeStruct<K, V>>>, n: MainNodeStruct<K, V>) -> bool {
         let guard = epoch::pin();
         n.1.store_shared(old, Release);
         match inode.node.cas_and_ref(old, Owned::new(n), Release, &guard) {
@@ -133,11 +136,11 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
     }
 
     // TODO make not public
-    pub fn gcas_read<'a>(&self, inode: INode<K, V>, guard: &'a Guard) -> Option<Shared<'a, MainNodeStruct<K, V>>> {
+    pub fn gcas_read<'a>(&self, inode: &INode<K, V>, guard: &'a Guard) -> Option<Shared<'a, MainNodeStruct<K, V>>> {
         let m = inode.node.load(Acquire, guard);
         match m {
             Some(shared) => match shared.1.load(Acquire, &guard) {
-                Some(_) => self.gcas_complete(inode.clone(), m, guard),
+                Some(_) => self.gcas_complete(inode, m, guard),
                 None => m,
             },
             None => m,
@@ -158,7 +161,7 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
                 }
 
                 // TODO
-                let old_main = self.gcas_read(rdcss.old.clone(), &guard);
+                let old_main = self.gcas_read(&rdcss.old, &guard);
                 if **old_main.unwrap() == rdcss.expected.clone() {
                     // commit the rdcss
                     match self.root.cas_and_ref(r, Owned::new(rdcss.nv.clone()), Release, guard) {
@@ -221,7 +224,7 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
         // TODO right?
         let guard = epoch::pin();
         let r = self.rdcss_read_root(false, &guard);
-        let main = self.gcas_read((**r).clone(), &guard);
+        let main = self.gcas_read(*r, &guard);
         if self.rdcss_root(r, (**main.unwrap()).clone(), r.copy_to_gen(self, Gen::new())) {
             CTrie {
                 root: Atomic::new(r.copy_to_gen(self, Gen::new())),
@@ -237,7 +240,7 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
         // TODO right?
         let guard = epoch::pin();
         let r = self.rdcss_read_root(false, &guard);
-        let main = self.gcas_read((**r).clone(), &guard);
+        let main = self.gcas_read(*r, &guard);
         if self.rdcss_root(r, (**main.unwrap()).clone(), r.copy_to_gen(self, Gen::new())) {
             CTrie {
                 root: Atomic::new((**r).clone()),
@@ -290,7 +293,7 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
                                         MainNode::CTrieNode(cnode.renewed(self, startgen.clone())), Arc::new(Atomic::null())
                                     );
 
-                                    if self.gcas(inode.clone(), asdf, new_mnode) {
+                                    if self.gcas(inode, asdf, new_mnode) {
                                         return self.ilookup(inode, key, lev, parent, guard, startgen)
                                     } else {
                                         return Err(())
@@ -342,7 +345,7 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
     }
 
     fn iinsert(&self, inode: &INode<K, V>, key: K, value: V, lev: usize, parent: Option<&INode<K, V>>, guard: &Guard, startgen: Arc<Gen>) -> Result<(), ()> {
-        let asdf = self.gcas_read(inode.clone(), guard);
+        let asdf = self.gcas_read(inode, guard);
         match asdf {
             Some(main_node) => {
                 match main_node.0 {
@@ -351,10 +354,10 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
                         if cnode.bmp & flag == 0 {
                             // TODO check gen?
                             let new_cnode = MainNodeStruct(MainNode::CTrieNode(
-                                CNode::inserted(pos, flag, &cnode, key.clone(), value)
+                                CNode::inserted(pos, flag, &cnode, key, value)
                             ), Arc::new(Atomic::null()));
 
-                            return match self.gcas(inode.clone(), asdf, new_cnode) {
+                            return match self.gcas(inode, asdf, new_cnode) {
                                 true => Ok(()),
                                 false => Err(()),
                             };
@@ -369,7 +372,7 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
                                     let new_main_node = MainNodeStruct(
                                         MainNode::CTrieNode(cnode.renewed(self, startgen.clone())), Arc::new(Atomic::null())
                                     );
-                                    if self.gcas(inode.clone(), asdf, new_main_node) {
+                                    if self.gcas(inode, asdf, new_main_node) {
                                         return self.iinsert(inode, key, value, lev, parent, guard, startgen);
                                     } else {
                                         return Err(());
@@ -386,7 +389,7 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
                                         }))
                                     ), Arc::new(Atomic::null()));
 
-                                    return match self.gcas(inode.clone(), asdf, new_cnode) {
+                                    return match self.gcas(inode, asdf, new_cnode) {
                                         true => Ok(()),
                                         false => Err(()),
                                     };
@@ -394,7 +397,7 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
                                     // TODO check gen equality?
                                     // need to extend tree due to a hash code collision
                                     let new_mnode = self.new_main_node(snode.clone(), SNode {
-                                        key: key.clone(),
+                                        key: key,
                                         value: value,
                                     }, lev + 5);
 
@@ -413,7 +416,7 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
                                     let new_mnode_struct = MainNodeStruct(
                                         MainNode::CTrieNode(CNode::updated(pos, cnode, new_node)), Arc::new(Atomic::null())
                                     );
-                                    return match self.gcas(inode.clone(), asdf, new_mnode_struct) {
+                                    return match self.gcas(inode, asdf, new_mnode_struct) {
                                         true => Ok(()),
                                         false => Err(()),
                                     };
@@ -426,7 +429,7 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
                             MainNode::List(LNode::inserted(lnode, key, value)), Arc::new(Atomic::null())
                         );
 
-                        return match self.gcas(inode.clone(), asdf, new_mnode) {
+                        return match self.gcas(inode, asdf, new_mnode) {
                             true => Ok(()),
                             false => Err(()),
                         };
@@ -495,7 +498,7 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
     }
 
     fn iremove(&self, inode: &INode<K, V>, key: &K, lev: usize, parent: Option<&INode<K, V>>, guard: &Guard, startgen: Arc<Gen>) -> Result<Option<V>, ()> {
-        let asdf = self.gcas_read(inode.clone(), guard);
+        let asdf = self.gcas_read(inode, guard);
         match asdf {
             Some(main_node) => {
                 match main_node.0 {
@@ -513,7 +516,7 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
                                     return self.iremove(new_inode, key, lev + 5, Some(inode), guard, startgen);
                                 } else {
                                     let cnode = MainNode::CTrieNode(cnode.renewed(self, startgen.clone()));
-                                    if self.gcas(inode.clone(), asdf, MainNodeStruct(cnode, Arc::new(Atomic::null()))) {
+                                    if self.gcas(inode, asdf, MainNodeStruct(cnode, Arc::new(Atomic::null()))) {
                                         return self.iremove(inode, key, lev, parent, guard, startgen);
                                     } else {
                                         return Err(())
@@ -531,11 +534,11 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
                                 let contracted = MainNodeStruct(self.to_contracted(new_cnode, lev), Arc::new(Atomic::null()));
 
                                 // TODO right?
-                                let result = self.gcas(inode.clone(), asdf, contracted);
+                                let result = self.gcas(inode, asdf, contracted);
                                 match result {
                                     true => {
                                         if let Some(uparent) = parent {
-                                            let ghj = self.gcas_read(inode.clone(), guard);
+                                            let ghj = self.gcas_read(inode, guard);
                                             match ghj.unwrap().0 {
                                                 MainNode::Tomb(_) => self.clean_parent(uparent, inode, self.hash_key(key), lev - 5, startgen),
                                                 _ => {},
@@ -565,7 +568,7 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
                         };
 
                         // TODO None? fix?
-                        match self.gcas(inode.clone(), asdf, MainNodeStruct(new_mnode, Arc::new(Atomic::null()))) {
+                        match self.gcas(inode, asdf, MainNodeStruct(new_mnode, Arc::new(Atomic::null()))) {
                             true => return Ok(None),
                             false => return Err(()),
                         };
@@ -586,7 +589,7 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
         let new_array: Vec<Arc<Branch<K, V>>> = cnode.array.iter().map(|branch| {
             match **branch {
                 Branch::Indirection(ref inode) => {
-                    let main = self.gcas_read(inode.clone(), &guard);
+                    let main = self.gcas_read(inode, &guard);
                     match main.unwrap().0 {
                         MainNode::Tomb(ref tnode) => Arc::new(Branch::Singleton(
                             tnode.clone().resurrect()
@@ -633,12 +636,12 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
     fn clean(&self, inode: &INode<K, V>, lev: usize) {
         // TODO pass in guard?
         let guard = epoch::pin();
-        let m = self.gcas_read(inode.clone(), &guard);
+        let m = self.gcas_read(inode, &guard);
         match m.unwrap().0 {
             MainNode::CTrieNode(ref cnode) => {
                 // TODO None?
                 let compressed = MainNodeStruct(self.to_compressed(cnode.clone(), lev), Arc::new(Atomic::null()));
-                let _ = self.gcas(inode.clone(), m, compressed);
+                let _ = self.gcas(inode, m, compressed);
             },
             _ => {},
         };
@@ -647,8 +650,8 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
     fn clean_parent(&self, parent: &INode<K, V>, inode: &INode<K, V>, hashcode: u64, lev: usize, start_gen: Arc<Gen>) {
         let guard = epoch::pin();
 
-        let parent_main = self.gcas_read(parent.clone(), &guard);
-        let imain = self.gcas_read(inode.clone(), &guard);
+        let parent_main = self.gcas_read(parent, &guard);
+        let imain = self.gcas_read(inode, &guard);
 
         match parent_main.unwrap().0 {
             MainNode::CTrieNode(ref cnode) => {
@@ -673,7 +676,7 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
                         ));
                         let contracted = MainNodeStruct(self.to_contracted(new_cnode, lev), Arc::new(Atomic::null()));
 
-                        if !self.gcas(parent.clone(), parent_main, contracted) && ptr_eq(self.rdcss_read_root(false, &guard).gen.as_ref(), start_gen.as_ref()) {
+                        if !self.gcas(parent, parent_main, contracted) && ptr_eq(self.rdcss_read_root(false, &guard).gen.as_ref(), start_gen.as_ref()) {
                             self.clean_parent(parent, inode, hashcode, lev, start_gen);
                         }
                     },

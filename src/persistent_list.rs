@@ -152,16 +152,16 @@ mod tests {
         assert_list(&list);
     }
 
-    #[test]
-    pub fn test_insert() {
-        let mut list = PersistentList::<u32>::new();
-        list = list.prepend(6);
-        list = list.insert(0, 13);
-        list = list.insert(1, 9);
-        list = list.insert(3, 4);
-
-        assert_list(&list);
-    }
+    // #[test]
+    // pub fn test_insert() {
+    //     let mut list = PersistentList::<u32>::new();
+    //     list = list.prepend(6);
+    //     list = list.insert(0, 13);
+    //     list = list.insert(1, 9);
+    //     list = list.insert(3, 4);
+    //
+    //     assert_list(&list);
+    // }
 
     #[test]
     pub fn test_remove() {

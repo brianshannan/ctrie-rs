@@ -158,7 +158,7 @@ impl<K, V, H> CasHelper<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildH
         }
         let root = CasHelper::rdcss_read_root(ct, true, guard);
 
-        // TODO fix? a
+        // TODO fix?
         match **prev.unwrap() {
             MainNodeStruct(MainNode::Failed(ref fnode), _) => {
                 // gcas failure, try to commit previous value
@@ -851,27 +851,27 @@ mod tests {
         }
     }
 
-    // #[test]
-    // fn test_concurrency() {
-    //     let ct = Arc::new(CTrie::<u64, u64>::new());
-    //
-    //     let mut guards = Vec::<thread::JoinHandle<()>>::new();
-    //     for idx in 0..100 {
-    //         let c = ct.clone();
-    //         guards.push(thread::spawn(move || {
-    //             for num in 0..10000 {
-    //                 let num_to_insert = (100 * num) + idx;
-    //                 c.insert(num_to_insert, num_to_insert + 10000);
-    //             }
-    //         }));
-    //     }
-    //
-    //     for guard in guards {
-    //         guard.join().unwrap();
-    //     }
-    //
-    //     for idx in 0..1000000 {
-    //         assert_eq!(Some(idx + 10000), ct.lookup(&idx));
-    //     }
-    // }
+    #[test]
+    fn test_concurrency() {
+        let ct = Arc::new(CTrie::<u64, u64>::new());
+
+        let mut guards = Vec::<thread::JoinHandle<()>>::new();
+        for idx in 0..100 {
+            let c = ct.clone();
+            guards.push(thread::spawn(move || {
+                for num in 0..10000 {
+                    let num_to_insert = (100 * num) + idx;
+                    c.insert(num_to_insert, num_to_insert + 10000);
+                }
+            }));
+        }
+
+        for guard in guards {
+            guard.join().unwrap();
+        }
+
+        for idx in 0..1000000 {
+            assert_eq!(Some(idx + 10000), ct.lookup(&idx));
+        }
+    }
 }

@@ -27,7 +27,7 @@ use node::Gen;
 
 // TODO see if the iterator can work without clones
 // TODO memory leaks everywhere
-// TODO change tail recursion to loops
+// TODO change tail recursion to loops because rust doesn't have tail recursion
 // TODO reduce number of clone necessary
 // TODO gcas and rdcss are both a mess
 
@@ -37,11 +37,10 @@ pub struct CTrie<K, V, H=DefaultHashBuilder> where K: Hash + Eq + Clone, V: Clon
     root: Atomic<INode<K, V>>,
     read_only: bool,
     hash_builder: H,
-    // hash_builder: ThreadLocal<H>,
-
 }
 
 pub struct CasHelper<K, V, H> {
+    // This is super hacky, should just put then on the function
     _k: PhantomData<K>,
     _v: PhantomData<V>,
     _h: PhantomData<H>,
@@ -98,7 +97,7 @@ impl<K, V, H> CasHelper<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildH
 
                 // TODO
                 let old_main = CasHelper::gcas_read(ct, &rdcss.old, &guard);
-                if **old_main.unwrap() == rdcss.expected.clone() {
+                if **old_main.unwrap() == rdcss.expected {
                     // commit the rdcss
                     match ct.root.cas_and_ref(r, Owned::new(rdcss.nv.clone()), Release, guard) {
                         Ok(shared) => {
@@ -389,7 +388,7 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
                                     // TODO
                                     let new_cnode = MainNodeStruct(MainNode::CTrieNode(
                                         CNode::updated(pos, &cnode, Branch::Singleton(SNode {
-                                            key: key.clone(),
+                                            key: key,
                                             value: value,
                                         }))
                                     ), Arc::new(Atomic::null()));

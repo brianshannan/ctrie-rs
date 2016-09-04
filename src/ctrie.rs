@@ -198,12 +198,14 @@ impl <K, V, H> fmt::Debug for CTrie<K, V, H> where K: Hash + Eq + Clone + fmt::D
 }
 
 impl<K, V> CTrie<K, V, DefaultHashBuilder> where K: Hash + Eq + Clone, V: Clone {
+    /// Creates a new CTrie with the default hasher.
     pub fn new() -> CTrie<K, V> {
         CTrie::with_hasher(DefaultHashBuilder::default())
     }
 }
 
 impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHasher + Clone {
+    /// Creates a new CTrie with a custom hasher.
     pub fn with_hasher(hash_builder: H) -> CTrie<K, V, H> {
         CTrie {
             root: Atomic::new(
@@ -224,6 +226,7 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
         }
     }
 
+    /// Returns a consistent view of the trie at a single point in time.
     pub fn snapshot(&self) -> CTrie<K, V, H> {
         // TODO right?
         let guard = epoch::pin();
@@ -240,6 +243,8 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
         }
     }
 
+    /// Returns a consistent view of the trie at a single point in time where write operations
+    /// are disallowed.
     pub fn read_only_snapshot(&self) -> CTrie<K, V, H> {
         // TODO right?
         let guard = epoch::pin();
@@ -256,18 +261,23 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
         }
     }
 
+    /// Returns the number of key-value pairs in the trie.
     pub fn size(&self) -> usize {
         // TODO optimize?
         self.iter().count()
     }
 
     // TODO automically create read only snapshot if not given one
+    /// Produces an iterator visiting all the key-value pairs in the trie. The iteration order
+    /// is undefined.
     pub fn iter(&self) -> CTrieIter<K, V, H> {
         assert!(self.read_only);
 
         CTrieIter::new(self)
     }
 
+    /// Returns a clone of the of the value corresponding to the given key, or None if the key
+    /// isn't present in the trie.
     pub fn lookup(&self, key: &K) -> Option<V> {
         let guard = epoch::pin();
         let r = CasHelper::rdcss_read_root(self, false, &guard);
@@ -334,6 +344,7 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
         }
     }
 
+    /// Inserts a key-value pair into the trie.
     pub fn insert(&self, key: K, value: V) -> () {
         assert!(!self.read_only);
 
@@ -372,7 +383,6 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
                                 if ptr_eq(new_inode.gen.as_ref(), startgen.as_ref()) {
                                     return self.iinsert(new_inode, key, value, lev + 5, Some(inode), guard, startgen);
                                 } else {
-
                                     let new_main_node = MainNodeStruct(
                                         MainNode::CTrieNode(cnode.renewed(self, startgen.clone())), Arc::new(Atomic::null())
                                     );
@@ -489,7 +499,7 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
         }
     }
 
-    // TODO this leaks and should return the value
+    /// Removes the key from the trie, returning the old value if present.
     pub fn remove(&self, key: &K) -> Option<V> {
         assert!(!self.read_only);
 
@@ -528,7 +538,6 @@ impl<K, V, H> CTrie<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildHashe
                                 }
                             },
                             Branch::Singleton(ref snode) => {
-                                // TODO fix
                                 if snode.key != *key {
                                     // hash code matches, but keys aren't equal
                                     return Ok(None);

@@ -1,4 +1,3 @@
-// use std::collections::LinkedList;
 use std::fmt;
 use std::hash::Hash;
 use std::hash::BuildHasher;
@@ -22,7 +21,7 @@ impl Gen {
     }
 }
 
-pub type ArcGen = Arc<Gen>;
+// pub type ArcGen = Arc<Gen>;
 
 pub fn ptr_eq<T>(first: &T, second: &T) -> bool {
     first as *const T == second as *const T
@@ -219,8 +218,7 @@ impl<K: Clone + Hash + Eq, V: Clone> CNode<K, V> {
     }
 
     pub fn renewed<H: BuildHasher + Clone>(&self, ctrie: &CTrie<K, V, H>, gen: Arc<Gen>) -> CNode<K, V> {
-        // TODO clone needed?
-        let array = self.array.clone().iter().map(|branch| {
+        let array = self.array.iter().map(|branch| {
             match **branch {
                 // TODO
                 Branch::Indirection(ref inode) => Arc::new(Branch::Indirection(inode.copy_to_gen(ctrie, gen.clone()))),

@@ -50,7 +50,7 @@ impl<T: Clone> PersistentList<T> {
     pub fn len(&self) -> usize {
         match *self {
             PersistentList::Nil => 0,
-            PersistentList::Cons(_, ref next) => 1 + (**next).len(),
+            PersistentList::Cons(_, ref next) => 1 + next.len(),
         }
     }
 

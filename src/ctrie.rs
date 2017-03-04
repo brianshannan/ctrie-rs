@@ -3,7 +3,7 @@ use std::hash::BuildHasher;
 use std::hash::BuildHasherDefault;
 use std::hash::Hash;
 use std::hash::Hasher;
-use std::hash::SipHasher;
+use std::collections::hash_map::DefaultHasher;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::{Acquire, Release};
@@ -31,7 +31,7 @@ use node::Gen;
 // TODO reduce number of clone necessary
 // TODO gcas and rdcss are both a mess
 
-pub type DefaultHashBuilder = BuildHasherDefault<SipHasher>;
+pub type DefaultHashBuilder = BuildHasherDefault<DefaultHasher>;
 
 pub struct CTrie<K, V, H=DefaultHashBuilder> where K: Hash + Eq + Clone, V: Clone, H: BuildHasher + Clone {
     root: Atomic<INode<K, V>>,
@@ -76,6 +76,9 @@ impl<K, V, H> CasHelper<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildH
         match ct.root.cas(Some(old), Some(Owned::new(inode)), Release) {
             Ok(()) => {
                 CasHelper::rdcss_complete(ct, false, &guard);
+                unsafe {
+                    guard.unlinked(old);
+                }
                 desc.committed.load(Acquire)
             },
             Err(_) => false,
@@ -138,6 +141,9 @@ impl<K, V, H> CasHelper<K, V, H> where K: Hash + Eq + Clone, V: Clone, H: BuildH
             Ok(shared) => {
                 CasHelper::gcas_complete(ct, inode, Some(shared), &guard);
                 let success = shared.1.load(Acquire, &guard).is_none();
+                unsafe {
+                    old.map(|node| guard.unlinked(node));
+                }
                 success
             },
             Err(_) => {
